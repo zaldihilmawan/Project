@@ -1,0 +1,268 @@
+package com.zaldi.gesturecontrol
+
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            GestureControlTheme {
+                MainScreen(
+                    onRequestOverlay = { requestOverlayPermission() },
+                    onRequestAccessibility = { requestAccessibilityPermission() },
+                    onStartService = { startGestureService() },
+                    onStopService = { stopGestureService() },
+                    isOverlayGranted = { hasOverlayPermission() },
+                    isAccessibilityGranted = { hasAccessibilityPermission() }
+                )
+            }
+        }
+    }
+
+    private fun hasOverlayPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this)
+        else true
+
+    private fun hasAccessibilityPermission(): Boolean {
+        val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+        return enabledServices.any { it.resolveInfo.serviceInfo.packageName == packageName }
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            startActivity(intent)
+        }
+    }
+
+    private fun requestAccessibilityPermission() {
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    private fun startGestureService() {
+        val intent = Intent(this, GestureOverlayService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            startForegroundService(intent)
+        else
+            startService(intent)
+    }
+
+    private fun stopGestureService() {
+        stopService(Intent(this, GestureOverlayService::class.java))
+    }
+}
+
+@Composable
+fun MainScreen(
+    onRequestOverlay: () -> Unit,
+    onRequestAccessibility: () -> Unit,
+    onStartService: () -> Unit,
+    onStopService: () -> Unit,
+    isOverlayGranted: () -> Boolean,
+    isAccessibilityGranted: () -> Boolean
+) {
+    var serviceRunning by remember { mutableStateOf(false) }
+    var overlayOk by remember { mutableStateOf(isOverlayGranted()) }
+    var accessOk by remember { mutableStateOf(isAccessibilityGranted()) }
+
+    // Refresh on resume
+    LaunchedEffect(Unit) {
+        overlayOk = isOverlayGranted()
+        accessOk = isAccessibilityGranted()
+    }
+
+    val bgColor = Color(0xFF0A0A0A)
+    val orange = Color(0xFFFF6B00)
+    val cardColor = Color(0xFF1A1A1A)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Header
+        Text(
+            "✋ Gesture Control",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            color = orange
+        )
+        Text(
+            "Kontrol semua aplikasi dengan gerakan tangan",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+
+        Divider(color = Color(0xFF2A2A2A))
+
+        // Permission Cards
+        Text("Izin Diperlukan", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+
+        PermissionCard(
+            title = "Overlay Permission",
+            description = "Tampilkan kamera di atas semua aplikasi",
+            granted = overlayOk,
+            onRequest = {
+                onRequestOverlay()
+                overlayOk = isOverlayGranted()
+            },
+            cardColor = cardColor,
+            orange = orange
+        )
+
+        PermissionCard(
+            title = "Accessibility Service",
+            description = "Simulasi tap & swipe di semua aplikasi",
+            granted = accessOk,
+            onRequest = {
+                onRequestAccessibility()
+                accessOk = isAccessibilityGranted()
+            },
+            cardColor = cardColor,
+            orange = orange
+        )
+
+        Divider(color = Color(0xFF2A2A2A))
+
+        // Gesture List
+        Text("Gesture yang Tersedia", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+
+        val gestures = listOf(
+            "👆 Swipe Atas" to "Scroll ke atas / Next video",
+            "👇 Swipe Bawah" to "Scroll ke bawah / Previous",
+            "👈 Swipe Kiri" to "Geser ke kiri",
+            "👉 Swipe Kanan" to "Geser ke kanan",
+            "✊ Kepalan" to "Tap / Klik",
+            "🤙 Pinch" to "Zoom out",
+            "🖐 Buka Tangan" to "Pause / Play",
+            "✌️ Peace Sign" to "Screenshot",
+            "👍 Thumbs Up" to "Like / Double tap"
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(gestures) { (gesture, action) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(cardColor, RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(gesture, color = Color.White, fontSize = 14.sp)
+                    Text(action, color = Color.Gray, fontSize = 12.sp)
+                }
+            }
+        }
+
+        // Start/Stop Button
+        Button(
+            onClick = {
+                if (!serviceRunning) {
+                    if (overlayOk && accessOk) {
+                        onStartService()
+                        serviceRunning = true
+                    }
+                } else {
+                    onStopService()
+                    serviceRunning = false
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (serviceRunning) Color(0xFF333333) else orange
+            ),
+            enabled = overlayOk && accessOk
+        ) {
+            Text(
+                if (serviceRunning) "⏹ Stop Gesture Control" else "▶ Start Gesture Control",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        if (!overlayOk || !accessOk) {
+            Text(
+                "⚠ Berikan semua izin di atas terlebih dahulu",
+                color = Color(0xFFFFAA00),
+                fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        }
+    }
+}
+
+@Composable
+fun PermissionCard(
+    title: String,
+    description: String,
+    granted: Boolean,
+    onRequest: () -> Unit,
+    cardColor: Color,
+    orange: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(cardColor, RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            Text(description, color = Color.Gray, fontSize = 12.sp)
+        }
+        if (granted) {
+            Text("✅", fontSize = 20.sp)
+        } else {
+            TextButton(onClick = onRequest) {
+                Text("Izinkan", color = orange, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun GestureControlTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = darkColorScheme(),
+        content = content
+    )
+}
+
